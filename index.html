@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<title>Night</title>
+<style>
+:root{--amber:#ff9a3c;--dim:#a8672a;--faint:#4a2f14}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;background:#000;color:var(--amber);overflow:hidden;
+  font:400 16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+#stage{position:fixed;inset:0;transition:filter 2s,opacity 2s}
+#shift{position:absolute;inset:0;transition:transform 4s}
+.moon{position:absolute;right:9vw;top:9vh;width:min(20vw,26vh)}
+.main{position:absolute;left:7vw;top:50%;transform:translateY(-58%)}
+.clock{font-size:min(17vw,34vh);letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums}
+.clock small{font-size:.2em;margin-left:.15em;color:var(--dim)}
+.date{color:var(--dim);text-transform:uppercase;letter-spacing:.2em;font-size:min(2.2vw,3.6vh);margin-top:1em}
+.line{color:var(--dim);letter-spacing:.14em;text-transform:uppercase;font-size:min(2.4vw,3.8vh);margin-top:1.4em;cursor:pointer}
+.line b{font-weight:500;color:var(--amber)}
+.waves{position:absolute;left:0;bottom:0;width:200%;height:26vh;animation:wv 24s linear infinite}
+.waves2{height:18vh;animation-duration:36s;opacity:.6}
+@keyframes wv{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+/* dims itself after a while; a tap brings it back */
+body.dim #stage{filter:brightness(.45)}
+body.dim .waves{animation-play-state:paused}
+@media (orientation:portrait){
+  .main{left:50%;transform:translate(-50%,-50%);text-align:center;top:46%}
+  .clock{font-size:26vw}.date{font-size:3.6vw}.line{font-size:3.4vw}
+  .moon{width:24vw;right:8vw;top:6vh}
+}
+/* alarm picker */
+#picker{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;flex-direction:column;gap:18px;z-index:5}
+#picker.on{display:flex}
+#picker label{color:var(--dim);letter-spacing:.2em;text-transform:uppercase;font-size:13px}
+#picker input{background:#120a04;color:var(--amber);border:.5px solid #6b3d12;border-radius:10px;padding:12px 16px;font:inherit;font-size:30px;color-scheme:dark}
+#picker .row{display:flex;gap:10px}
+#picker button{background:#1b1007;color:var(--amber);border:.5px solid #6b3d12;border-radius:10px;padding:11px 20px;font:inherit;font-size:15px;cursor:pointer}
+</style></head><body>
+<div id="stage"><div id="shift">
+  <svg class="moon" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="#2a1a0a"/><path d="M62 14a40 40 0 1 0 0 72a32 32 0 1 1 0-72z" fill="#c98a4a" opacity=".85"/></svg>
+  <div class="main">
+    <div class="clock"><span id="t">--:--</span><small id="ap"></small></div>
+    <div class="date" id="d"></div>
+    <div class="line" id="line"></div>
+  </div>
+  <svg class="waves" viewBox="0 0 800 60" preserveAspectRatio="none"><path d="M0 30 Q50 5 100 30 T200 30 T300 30 T400 30 T500 30 T600 30 T700 30 T800 30 V60 H0z" fill="#2a1a0a"/></svg>
+  <svg class="waves waves2" viewBox="0 0 800 60" preserveAspectRatio="none"><path d="M0 34 Q50 12 100 34 T200 34 T300 34 T400 34 T500 34 T600 34 T700 34 T800 34 V60 H0z" fill="#4a2f14"/></svg>
+</div></div>
+
+<div id="picker">
+  <label>Wake-up time</label>
+  <input type="time" id="ptime" value="04:30">
+  <div class="row"><button id="psave">Save</button><button id="pclear">Clear</button><button id="pcancel">Cancel</button></div>
+</div>
+
+<script>
+(function(){
+  var LAT=30.45, LON=-81.65;                 // north Jacksonville
+  var $=function(id){return document.getElementById(id)};
+  function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v);}catch(e){return null}}
+
+  /* clock */
+  function pad(n){return String(n).padStart(2,'0')}
+  function tick(){
+    var n=new Date(),h=n.getHours(),m=n.getMinutes(),ap=h>=12?'PM':'AM';h=h%12||12;
+    $('t').textContent=h+':'+pad(m); $('ap').textContent=ap;
+    $('d').textContent=n.toLocaleDateString('en-US',{weekday:'long'})+' · '+n.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  }
+  tick(); setInterval(tick,1000);
+
+  /* weather (free, no key): Open-Meteo */
+  var CODES={0:'Clear',1:'Mostly clear',2:'Partly cloudy',3:'Cloudy',45:'Fog',48:'Fog',51:'Drizzle',53:'Drizzle',55:'Drizzle',
+    61:'Rain',63:'Rain',65:'Heavy rain',66:'Freezing rain',67:'Freezing rain',71:'Snow',73:'Snow',75:'Snow',80:'Showers',81:'Showers',82:'Heavy showers',
+    95:'Storms',96:'Storms',99:'Storms'};
+  var wx=null; try{wx=JSON.parse(ls('wx')||'null')}catch(e){}
+  function loadWx(){
+    var u='https://api.open-meteo.com/v1/forecast?latitude='+LAT+'&longitude='+LON+
+      '&current=temperature_2m,weather_code&daily=temperature_2m_min&temperature_unit=fahrenheit&timezone=auto&forecast_days=2';
+    fetch(u,{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){
+      wx={temp:Math.round(j.current.temperature_2m),code:j.current.weather_code,low:Math.round(j.daily.temperature_2m_min[0]),ts:Date.now()};
+      ls('wx',JSON.stringify(wx)); render();
+    }).catch(function(){});
+  }
+  loadWx(); setInterval(loadWx,15*60*1000);
+
+  /* alarm line */
+  function fmtAlarm(v){var p=v.split(':'),h=+p[0],ap=h>=12?'PM':'AM';h=h%12||12;return h+':'+p[1]+' '+ap}
+  function render(){
+    var parts=[];
+    if(wx&&Date.now()-wx.ts<6*3600*1000){parts.push('<b>'+wx.temp+'°</b> '+(CODES[wx.code]||'')+' · Low '+wx.low+'°');}
+    var a=ls('alarm');
+    parts.push(a?'Alarm <b>'+fmtAlarm(a)+'</b>':'Set alarm');
+    $('line').innerHTML=parts.join(' · ');
+  }
+  render();
+
+  $('line').addEventListener('click',function(e){e.stopPropagation();$('ptime').value=ls('alarm')||'04:30';$('picker').classList.add('on')});
+  $('psave').onclick=function(){ls('alarm',$('ptime').value);$('picker').classList.remove('on');render()};
+  $('pclear').onclick=function(){ls('alarm',null);$('picker').classList.remove('on');render()};
+  $('pcancel').onclick=function(){$('picker').classList.remove('on')};
+
+  /* dim after 3 minutes with no touch; any tap brings it back */
+  var dimT;function bright(){document.body.classList.remove('dim');clearTimeout(dimT);dimT=setTimeout(function(){document.body.classList.add('dim')},3*60*1000)}
+  ['pointerdown','keydown'].forEach(function(ev){addEventListener(ev,bright)});bright();
+
+  /* nudge everything a few pixels each minute so the screen never burns in */
+  setInterval(function(){var x=Math.round((Math.random()-.5)*14),y=Math.round((Math.random()-.5)*14);
+    $('shift').style.transform='translate('+x+'px,'+y+'px)'},60*1000);
+
+  /* keep the screen on */
+  var wl=null;function lock(){try{if(navigator.wakeLock&&document.visibilityState==='visible'){navigator.wakeLock.request('screen').then(function(l){wl=l}).catch(function(){})}}catch(e){}}
+  lock();document.addEventListener('visibilitychange',lock);addEventListener('pointerdown',function(){if(!wl||wl.released)lock()});
+
+  /* ask for full screen on first tap if the browser isn't already hiding its bars */
+  addEventListener('pointerdown',function f(){
+    if(!matchMedia('(display-mode: fullscreen)').matches&&!matchMedia('(display-mode: standalone)').matches&&!document.fullscreenElement&&document.documentElement.requestFullscreen){
+      try{document.documentElement.requestFullscreen({navigationUI:'hide'}).catch(function(){})}catch(e){}
+    }
+    removeEventListener('pointerdown',f);
+  });
+
+  if('serviceWorker' in navigator){addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){})})}
+})();
+</script></body></html>
